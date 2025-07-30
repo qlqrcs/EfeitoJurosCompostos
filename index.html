@@ -23,6 +23,10 @@
         input[type="number"] {
             -moz-appearance: textfield;
         }
+        .input-error {
+            border-color: #ef4444; /* red-500 */
+            box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.3); /* red-300 ring */
+        }
     </style>
 </head>
 <body class="p-4 sm:p-6 md:p-8">
@@ -42,12 +46,24 @@
                 <input type="number" id="retirementAge" value="50" min="18" class="p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition duration-200">
             </div>
             <div class="flex flex-col">
-                <label for="monthlyContribution" class="text-sm font-medium text-gray-700 mb-1">Aporte Mensal (R$):</label>
-                <input type="number" id="monthlyContribution" value="1000" min="0" step="100" class="p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition duration-200">
+                <label for="initialValue" class="text-sm font-medium text-gray-700 mb-1">Valor Inicial (R$):</label>
+                <input type="number" id="initialValue" value="0" min="0" step="1000" class="p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition duration-200">
+            </div>
+            <div class="flex flex-col">
+                <label for="contributionAmount" class="text-sm font-medium text-gray-700 mb-1">Valor do Aporte (R$):</label>
+                <input type="number" id="contributionAmount" value="1000" min="0" step="100" class="p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition duration-200">
             </div>
             <div class="flex flex-col">
                 <label for="annualRealReturn" class="text-sm font-medium text-gray-700 mb-1">Taxa de Retorno Real Anual (%):</label>
                 <input type="number" id="annualRealReturn" value="6" min="0" step="0.1" class="p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition duration-200">
+            </div>
+            <div class="flex flex-col">
+                <label for="contributionFrequency" class="text-sm font-medium text-gray-700 mb-1">Frequência dos Aportes:</label>
+                <select id="contributionFrequency" class="p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition duration-200">
+                    <option value="monthly">Mensal</option>
+                    <option value="quarterly">Trimestral</option>
+                    <option value="annually">Anual</option>
+                </select>
             </div>
             <div class="flex flex-col md:col-span-2">
                 <label for="customContributionYears" class="text-sm font-medium text-gray-700 mb-1">Anos de Aporte Personalizado (0 para aporte total):</label>
@@ -69,7 +85,7 @@
                 <span class="block sm:inline" id="errorText"></span>
             </div>
             <div id="totalPeriodInfo" class="bg-blue-50 border-l-4 border-blue-400 text-blue-800 p-4 rounded-md mb-6 hidden">
-                <p><strong class="font-semibold">Período Total de Investimento:</strong> <span id="displayTotalYears"></span> anos (<span id="displayTotalMonths"></span> meses)</p>
+                <p><strong class="font-semibold">Período Total de Investimento:</strong> <span id="displayTotalYears"></span> anos (<span id="displayTotalPeriods"></span> períodos)</p>
             </div>
 
             <div id="resultsTableContainer" class="overflow-x-auto">
@@ -95,8 +111,10 @@
         document.addEventListener('DOMContentLoaded', () => {
             const currentAgeInput = document.getElementById('currentAge');
             const retirementAgeInput = document.getElementById('retirementAge');
-            const monthlyContributionInput = document.getElementById('monthlyContribution');
+            const initialValueInput = document.getElementById('initialValue'); // New input
+            const contributionAmountInput = document.getElementById('contributionAmount'); // Renamed from monthlyContribution
             const annualRealReturnInput = document.getElementById('annualRealReturn');
+            const contributionFrequencyInput = document.getElementById('contributionFrequency'); // New input
             const customContributionYearsInput = document.getElementById('customContributionYears');
             const calculateBtn = document.getElementById('calculateBtn');
             const resultsDiv = document.getElementById('results');
@@ -104,8 +122,18 @@
             const errorTextSpan = document.getElementById('errorText');
             const totalPeriodInfoDiv = document.getElementById('totalPeriodInfo');
             const displayTotalYearsSpan = document.getElementById('displayTotalYears');
-            const displayTotalMonthsSpan = document.getElementById('displayTotalMonths');
+            const displayTotalPeriodsSpan = document.getElementById('displayTotalPeriods'); // New span
             const resultsTableBody = document.getElementById('resultsTableBody');
+
+            // Array of all input elements for easy iteration during validation
+            const allInputs = [
+                currentAgeInput,
+                retirementAgeInput,
+                initialValueInput,
+                contributionAmountInput,
+                annualRealReturnInput,
+                customContributionYearsInput
+            ];
 
             // Function to format numbers as currency
             const formatCurrency = (value) => {
@@ -115,6 +143,29 @@
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2
                 }).format(value);
+            };
+
+            // Helper for visual error feedback on inputs
+            const markInvalid = (element) => {
+                element.classList.add('input-error');
+            };
+
+            const markValid = (element) => {
+                element.classList.remove('input-error');
+            };
+
+            const showError = (message, invalidInputs = []) => {
+                errorMessageDiv.classList.remove('hidden');
+                errorTextSpan.textContent = message;
+                resultsDiv.classList.add('hidden');
+                totalPeriodInfoDiv.classList.add('hidden');
+                allInputs.forEach(input => markValid(input)); // Clear all first
+                invalidInputs.forEach(input => markInvalid(input)); // Mark specific ones
+            };
+
+            const hideError = () => {
+                errorMessageDiv.classList.add('hidden');
+                allInputs.forEach(input => markValid(input)); // Clear all error styles
             };
 
             // Function to calculate future value of an annuity
@@ -134,22 +185,49 @@
             };
 
             // Main calculation function for a given contribution period
-            const calculateScenario = (monthlyContribution, yearsContributed, totalInvestmentYears, monthlyRate) => {
-                const monthsContributed = yearsContributed * 12;
-                const totalInvestmentMonths = totalInvestmentYears * 12;
+            const calculateScenario = (initialValue, contributionAmount, yearsContributed, totalInvestmentYears, annualRealReturn, frequency) => {
+                let periodRate;
+                let periodsContributed;
+                let totalInvestmentPeriods;
+                let periodsPerYear;
 
-                let accumulatedValueDuringContribution = 0;
-                if (monthsContributed > 0) {
-                    accumulatedValueDuringContribution = calculateFVAnnuity(monthlyContribution, monthlyRate, monthsContributed);
+                if (annualRealReturn === 0) {
+                    periodRate = 0;
+                } else {
+                    if (frequency === 'monthly') {
+                        periodRate = Math.pow(1 + (annualRealReturn / 100), 1 / 12) - 1;
+                        periodsPerYear = 12;
+                    } else if (frequency === 'quarterly') {
+                        periodRate = Math.pow(1 + (annualRealReturn / 100), 1 / 4) - 1;
+                        periodsPerYear = 4;
+                    } else { // 'annually'
+                        periodRate = annualRealReturn / 100;
+                        periodsPerYear = 1;
+                    }
                 }
 
-                const totalContributed = monthlyContribution * monthsContributed;
+                periodsContributed = yearsContributed * periodsPerYear;
+                totalInvestmentPeriods = totalInvestmentYears * periodsPerYear;
 
-                let finalValue = accumulatedValueDuringContribution;
-                // If there's a period after contributions stop, let the accumulated value grow
+                let accumulatedValueFromContributions = 0;
+                if (periodsContributed > 0) {
+                    accumulatedValueFromContributions = calculateFVAnnuity(contributionAmount, periodRate, periodsContributed);
+                }
+
+                const totalContributed = contributionAmount * periodsContributed;
+
+                // Calculate future value of the initial investment over the entire period
+                const fvOfInitialValue = calculateFVLumpSum(initialValue, periodRate, totalInvestmentPeriods);
+
+                let finalValue = fvOfInitialValue;
+
+                // If there's a period after contributions stop, let the accumulated value from contributions grow
                 if (yearsContributed < totalInvestmentYears) {
-                    const monthsRemaining = totalInvestmentMonths - monthsContributed;
-                    finalValue = calculateFVLumpSum(accumulatedValueDuringContribution, monthlyRate, monthsRemaining);
+                    const periodsRemaining = totalInvestmentPeriods - periodsContributed;
+                    finalValue += calculateFVLumpSum(accumulatedValueFromContributions, periodRate, periodsRemaining);
+                } else {
+                    // If contributions are for the full period, just add the accumulated value
+                    finalValue += accumulatedValueFromContributions;
                 }
 
                 const returnPerReal = totalContributed > 0 ? finalValue / totalContributed : (finalValue > 0 ? Infinity : 0);
@@ -157,66 +235,51 @@
                 return {
                     totalContributed,
                     finalValue,
-                    returnPerReal
+                    returnPerReal,
+                    totalInvestmentPeriods // Return total periods for display
                 };
             };
 
             calculateBtn.addEventListener('click', () => {
                 const currentAge = parseInt(currentAgeInput.value);
                 const retirementAge = parseInt(retirementAgeInput.value);
-                const monthlyContribution = parseFloat(monthlyContributionInput.value);
+                const initialValue = parseFloat(initialValueInput.value); // Get initial value
+                const contributionAmount = parseFloat(contributionAmountInput.value); // Get contribution amount
                 const annualRealReturn = parseFloat(annualRealReturnInput.value);
+                const contributionFrequency = contributionFrequencyInput.value; // Get frequency
                 let customContributionYears = parseInt(customContributionYearsInput.value);
 
                 // --- Input Validation ---
-                if (isNaN(currentAge) || isNaN(retirementAge) || isNaN(monthlyContribution) || isNaN(annualRealReturn)) {
-                    errorMessageDiv.classList.remove('hidden');
-                    errorTextSpan.textContent = 'Por favor, preencha todos os campos com valores numéricos válidos.';
-                    resultsDiv.classList.add('hidden');
-                    totalPeriodInfoDiv.classList.add('hidden');
+                let invalidInputs = [];
+                if (isNaN(currentAge) || currentAge < 18) invalidInputs.push(currentAgeInput);
+                if (isNaN(retirementAge) || retirementAge < 18) invalidInputs.push(retirementAgeInput);
+                if (isNaN(initialValue) || initialValue < 0) invalidInputs.push(initialValueInput);
+                if (isNaN(contributionAmount) || contributionAmount < 0) invalidInputs.push(contributionAmountInput);
+                if (isNaN(annualRealReturn) || annualRealReturn < 0) invalidInputs.push(annualRealReturnInput);
+                if (isNaN(customContributionYears) || customContributionYears < 0) invalidInputs.push(customContributionYearsInput);
+
+                if (invalidInputs.length > 0) {
+                    showError('Por favor, preencha todos os campos com valores numéricos válidos e positivos.', invalidInputs);
                     return;
                 }
 
                 if (currentAge >= retirementAge) {
-                    errorMessageDiv.classList.remove('hidden');
-                    errorTextSpan.textContent = 'A idade de aposentadoria deve ser maior que a idade atual.';
-                    resultsDiv.classList.add('hidden');
-                    totalPeriodInfoDiv.classList.add('hidden');
-                    return;
-                }
-
-                if (monthlyContribution < 0 || annualRealReturn < 0) {
-                    errorMessageDiv.classList.remove('hidden');
-                    errorTextSpan.textContent = 'Aporte mensal e taxa de retorno não podem ser negativos.';
-                    resultsDiv.classList.add('hidden');
-                    totalPeriodInfoDiv.classList.add('hidden');
+                    showError('A idade de aposentadoria deve ser maior que a idade atual.', [currentAgeInput, retirementAgeInput]);
                     return;
                 }
 
                 const totalInvestmentYears = retirementAge - currentAge;
-                const totalInvestmentMonths = totalInvestmentYears * 12;
 
                 if (customContributionYears === 0 || customContributionYears > totalInvestmentYears) {
                     customContributionYears = totalInvestmentYears; // If 0 or greater than total, means full period
                     customContributionYearsInput.value = totalInvestmentYears; // Update input field
                 }
 
-                if (customContributionYears < 0) {
-                    errorMessageDiv.classList.remove('hidden');
-                    errorTextSpan.textContent = 'Anos de aporte personalizado não podem ser negativos.';
-                    resultsDiv.classList.add('hidden');
-                    totalPeriodInfoDiv.classList.add('hidden');
-                    return;
-                }
-
-                errorMessageDiv.classList.add('hidden'); // Hide error if validation passes
+                hideError(); // Hide error if validation passes
                 resultsDiv.classList.remove('hidden');
                 totalPeriodInfoDiv.classList.remove('hidden');
 
                 displayTotalYearsSpan.textContent = totalInvestmentYears;
-                displayTotalMonthsSpan.textContent = totalInvestmentMonths;
-
-                const monthlyRate = Math.pow(1 + (annualRealReturn / 100), 1 / 12) - 1;
 
                 // --- Define Scenarios ---
                 const scenarios = [];
@@ -251,12 +314,18 @@
                     });
                 }
 
-
                 // --- Display Results ---
                 resultsTableBody.innerHTML = ''; // Clear previous results
 
+                let periodsPerYearDisplay = 1;
+                if (contributionFrequency === 'monthly') periodsPerYearDisplay = 12;
+                else if (contributionFrequency === 'quarterly') periodsPerYearDisplay = 4;
+
+                displayTotalPeriodsSpan.textContent = totalInvestmentYears * periodsPerYearDisplay;
+
+
                 scenarios.forEach(scenario => {
-                    const result = calculateScenario(monthlyContribution, scenario.years, totalInvestmentYears, monthlyRate);
+                    const result = calculateScenario(initialValue, contributionAmount, scenario.years, totalInvestmentYears, annualRealReturn, contributionFrequency);
                     const row = document.createElement('tr');
                     row.classList.add('hover:bg-gray-50');
 
@@ -270,6 +339,15 @@
                     resultsTableBody.appendChild(row);
                 });
             });
+
+            // Recalculate on input changes
+            currentAgeInput.addEventListener('input', calculateBtn.click);
+            retirementAgeInput.addEventListener('input', calculateBtn.click);
+            initialValueInput.addEventListener('input', calculateBtn.click);
+            contributionAmountInput.addEventListener('input', calculateBtn.click);
+            annualRealReturnInput.addEventListener('input', calculateBtn.click);
+            contributionFrequencyInput.addEventListener('change', calculateBtn.click);
+            customContributionYearsInput.addEventListener('input', calculateBtn.click);
 
             // Initial calculation on load with default values
             calculateBtn.click();
